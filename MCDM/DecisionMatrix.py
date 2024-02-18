@@ -36,10 +36,10 @@ ToDO:
 
 '''
 # Define the MCDM ranking methods
-MCDM_DEFAULT = {'AHP': AHP(),
+MCDM_DEFAULT = {#'AHP': AHP(),
           'Topsis': TOPSIS(),
           'Saw': SAW(),
-          #'Vikor': VIKOR()
+          'Vikor': VIKOR()
     }
 
 # Define the compromised ranking function of the rank matrices
