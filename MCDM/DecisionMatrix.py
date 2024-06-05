@@ -222,7 +222,7 @@ class DecisionMatrix:
                The column name to pivot the criteria data.
     
            Returns:
-           - new_self: DecisionMatrix
+           - new_dm: DecisionMatrix
                A new instance of DecisionMatrix with pivoted criteria.
            """
             
@@ -310,6 +310,19 @@ class DecisionMatrix:
             return new_self
 
     def mean_based_criteria(self, condition={}, derived_columns=None):
+        """
+        Apply criteria based on mean values of uncertain variables to the given data
+        and generate a new instance of DecisionMatrix.
+
+        Parameters:
+        - condition (dict): Dictionary of conditions to filter the data.
+        - derived_columns (dict): Dictionary of derived columns to be calculated.
+
+        Returns:
+        - new_dm (DecisionMatrix): New instance of DecisionMatrix with updated criteria.
+        """
+
+        # Create a copy of the decision matrix DataFrame
         dm_df = self.dm_df.copy()
 
         # Define base column
@@ -708,6 +721,33 @@ class DecisionMatrix:
             return RanksOutput(ranks_df, ranks_crit_df, ranks_MCDM_df, alt_exc_nan_df, alt_exc_const_df, list(mcdm_methods.keys()), list(comp_ranks.keys()), self)
 
     def calc_imprt_sensitivity(self, mcdm_methods, comp_ranks = {}, crit_cols_dict = {}, cat_crit_dict = {}, imp_tot = np.linspace(0, 1, 11), crit_tag = 'Criteria', alt_tag = 'Alternative ID', **ranking_args):
+        """
+        Calculate the sensitivity of the rankings to the weights of the criteria.
+
+        Parameters:
+        - mcdm_methods (dict): 
+            A dictionary with MCDM method names as keys and ranking functions as values.
+        - comp_ranks (dict):
+            A dictionary specifying compromise ranking methods.
+        - crit_cols_dict (dict):
+            A dictionary specifying the criteria columns to use for the sensitivity analysis.
+        - cat_crit_dict (dict):
+            A dictionary specifying the category criteria to use for the sensitivity analysis.
+        - imp_tot (numpy.ndarray):
+            An array of total importance values to use for the sensitivity analysis.
+        - crit_tag (str):
+            The tag to use for the criteria column.
+        - alt_tag (str):
+            The tag to use for the alternative column.
+        - **ranking_args:
+            Additional keyword arguments for the ranking methods.
+
+        Returns:
+        - ranks_imp_df (pd.DataFrame):
+            A DataFrame containing the rankings at the highest weights.
+        - imp_sens_df (pd.DataFrame):
+            A DataFrame containing the sensitivity of the weights values.
+        """
         
         # Get the criteria dataframe from the decision matrix object
         cat_crit_df = self.cat_crit_df

@@ -78,9 +78,9 @@ def filter_dataframe(df, filter_conditions=None, derived_columns=None, base_cols
         for col, cond in filter_conditions.items():
             
             if isinstance(cond, list):
-                # Filter data based on whether column values are in the provided list
-                filtered_df = filtered_df[filtered_df[col].isin(cond)]
-                boolean_df[col] = unfiltered_df[col].isin(cond)
+                # Filter data based on whether column values are equal to the provided value
+                filtered_df = filtered_df[filtered_df[col] == cond['equal']]
+                boolean_df[col] = unfiltered_df[col] == cond['equal']
             elif 'equal' in cond:
                 # Filter data based on whether column values are equal to the provided value
                 filtered_df = filtered_df[filtered_df[col].isin(cond['equal'])]
