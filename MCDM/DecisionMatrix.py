@@ -549,21 +549,22 @@ class DecisionMatrix:
     def calc_rankings(self, mcdm_methods = MCDM_DEFAULT, comp_ranks=COMP_DEFAULT, constraints ={}, rank_filt = {}, derived_columns = None):
             """
             Calculate rankings for a DecisionMatrix instance using specified Multi-Criteria Decision Making (MCDM) methods.
-        
+
             Parameters:
-                self (DecisionMatrix): 
-                    The DecisionMatrix instance containing the data to be ranked.
-                crit_cols_rank (list of str): 
-                    A list of column names to be ranked.
-                mcdm_methods (dict of {str: callable}): 
-                    A dictionary with MCDM method names as keys and ranking functions as values.
-                comp_ranks (dict): 
-                    A dictionary specifying compromise ranking methods.
-                rank_filt (dict):
-                    A dictionary specifying filter conditions. E.g., {'Group ID': 'G1', 'Sample ID': 'S1'}
-        
+            - mcdm_methods: dict, optional
+                Dictionary of MCDM methods to use for ranking. Defaults to the MCDM_DEFAULT dictionary.
+            - comp_ranks: dict, optional
+                Dictionary of compromised ranking functions to use. Defaults to the COMP_DEFAULT dictionary.
+            - constraints: dict, optional
+                Dictionary of constraints to filter the data. Defaults to an empty dictionary.
+            - rank_filt: dict, optional
+                Dictionary of filters to apply to the ranking. Defaults to an empty dictionary.
+            - derived_columns: dict, optional
+                Dictionary of derived columns to calculate. Defaults to an empty dictionary.
+
             Returns:
-                ....
+            - ranks_output: RanksOutput
+                An instance of the RanksOutput class containing the rankings.
             """
             
             # provide criteria weights in array numpy.darray. All weights must sum to 1.
