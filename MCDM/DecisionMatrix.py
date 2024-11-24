@@ -8,6 +8,8 @@ import matplotlib.colors as mcolors
 import matplotlib.ticker as mtick
 import matplotlib.lines as mlines
 import matplotlib.cm as cm
+import seaborn as sns
+import tabulate as tb
 
 
 # Importing various methods from pyrepo_mcda
@@ -24,7 +26,7 @@ from pyrepo_mcda.additions import rank_preferences
 
 # Utility functions
 from .MCDMoutput import RanksOutput
-from .utils import filter_dataframe
+from .utils.other_utils import filter_dataframe
 
 '''
 ToDO:
@@ -53,12 +55,11 @@ class DecisionMatrix:
         metrics_df: pd.DataFrame,
         objectives: Dict[str, int],
         alt_cols: List[str],
-        crit_cols: List[str],
+        crit_cols: Optional[List[str]] = None,
         weights: Optional[Dict[str, float]] = None,
         group_cols: Optional[List[str]] = [],
         group_weights: Optional[Dict[str, float]] = None,
         unc_cols: Optional[List[str]] = [],
-        unc_var_prob_dist: Optional[Dict[str, object]] = None,
         crit_cats: Optional[Dict[str, List[str]]] = None
     ):
         """
@@ -89,14 +90,25 @@ class DecisionMatrix:
         self.metrics_df = metrics_df.copy()
         self.objectives = copy.deepcopy(objectives)
         self.alt_cols = alt_cols.copy()
-        self.crit_cols = crit_cols.copy()
-        self.weights = weights.copy() if weights is not None else {}
         self.group_cols = group_cols.copy() if group_cols is not None else []
-        self.group_weights = group_weights.copy() if group_weights is not None else {}
         self.unc_cols = unc_cols.copy() if unc_cols is not None else []
-        #self.unc_var_prob_dist = unc_var_prob_dist.copy() if unc_var_prob_dist is not None else {}
+
+        # If crit_cols is not provided, infer it as all columns except alt_cols, group_cols, and unc_cols
+        if crit_cols is None:
+            excluded_cols = set(self.alt_cols + self.group_cols + self.unc_cols)
+            self.crit_cols = [col for col in metrics_df.columns if col not in excluded_cols]
+        else:
+            self.crit_cols = crit_cols.copy()
+
+        self.weights = weights.copy() if weights is not None else {}
+        self.group_weights = group_weights.copy() if group_weights is not None else {}
         self.crit_cats = crit_cats.copy() if crit_cats is not None else {}
-        
+
+        # Ensure all criteria have a specified objective; default to 1 if not provided
+        for crit in self.crit_cols:
+            if crit not in self.objectives:
+                self.objectives[crit] = 1
+
         # Initialize other attributes as None
         self.dm_df = None
         self.alternatives_df = None
@@ -148,12 +160,6 @@ class DecisionMatrix:
         if self.unc_cols:
             self.unc_smpls_df = self.metrics_df[self.unc_cols].drop_duplicates().reset_index(drop=True)
             self.unc_smpls_df.insert(0, 'Sample ID', ['S' + str(idx) for idx in range(1, len(self.unc_smpls_df)+1)])
-            # Calculate default likelihood distribution for uncertainty columns
-            # for unc_col in self.unc_cols:
-            #     if unc_col not in self.unc_var_prob_dist.keys():
-            #         outcomes = list(self.unc_smpls_df[unc_col].drop_duplicates().values)
-            #         probabilities = np.ones(len(outcomes)) / len(outcomes)
-            #         self.unc_var_prob_dist[unc_col] = dict(zip(outcomes, probabilities))
         
         # Calculate criteria weights if not provided
         # Assumes equal weights if not provided 
@@ -212,7 +218,245 @@ class DecisionMatrix:
         self.dm_df = pd.merge(self.dm_df, self.metrics_df[self.alt_cols + self.group_cols + self.unc_cols + self.crit_cols],
                              on=self.alt_cols + self.group_cols + self.unc_cols, how='left')
 
+#%% Plottting methods
+    # Method for plotting the criteria
+    def plot_criteria_weights(self, group_by_category=True):
+        """
+        Plots the weights of criteria.
 
+        Parameters:
+        - group_by_category (bool): If True, the criteria will be grouped by category and displayed as a stacked bar plot. 
+                       If False, the criteria will be displayed as individual bars.
+
+        Returns:
+        None
+        """
+
+        # Get a list of unique criteria
+        criteria = self.crit_df['Criteria'].unique()
+
+        # Generate a list of unique colors
+        colors = list(mcolors.CSS4_COLORS.keys())
+        colors.remove('black')  # Remove 'black' from the list of colors
+        colors = colors[0:len(criteria)]
+
+        # Make colors for each criteria and store in dictionary
+        criteria_colors = dict(zip(criteria, colors))
+
+        if group_by_category:
+            # Create a bar plot from the pivoted DataFrame
+            df = self.cat_crit_df.pivot(index='Category', columns='Criteria', values='Weight')
+            ax = df.plot(kind='bar', stacked=True, figsize=(15,8), color=[criteria_colors[crit] for crit in df.columns])
+            # Create an array to store the cumulative height of the bars
+            cumulative_height = np.zeros(len(df))
+            # Iterate over each bar (patch) in the plot
+            for i, p in enumerate(ax.patches):
+                # Calculate the index of the current bar in its stack
+                bar_index = i % len(df)
+                # Update the cumulative height of the bars in the current stack
+                cumulative_height[bar_index] += p.get_height()
+                # Only annotate bars with a height greater than zero
+                if p.get_height() > 0:
+                    # Annotate the height (weights value) of each bar on the plot
+                    # The coordinates given are (x, y) where x is the bar's x coordinate and y is the cumulative height of the bars in the stack minus half the bar's height
+                    ax.annotate(str(round(p.get_height(), 2)), (p.get_x() + p.get_width() / 2., cumulative_height[bar_index] - p.get_height() / 2), ha='center', va='center')
+
+            # Set the x-axis label
+            ax.set_xlabel('Criteria categories', fontsize = 12)
+            # Set the x-axis labels to be truncated and tilted
+            ax.set_xticklabels([label[:10] for label in df.index], rotation=45)
+            # Set the legend
+            plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc='lower left', ncol=4, mode="expand", borderaxespad=0., edgecolor = 'black', title = 'Criteria', fontsize = 12)
+
+        else:
+            ax = self.crit_df.plot(x='Criteria', y='Weight', kind='bar', figsize=(15,8), color=[criteria_colors[crit] for crit in self.crit_df['Criteria']], title='Weight of criteria', legend = False)
+            for p in ax.patches:
+                # Only annotate bars with a height greater than zero
+                if p.get_height() > 0:
+                    # Annotate the height (weights value) of each bar on the plot
+                    # The coordinates given are (x, y) where x is the bar's x coordinate and y is half the bar's height
+                    ax.annotate(str(round(p.get_height(), 2)), (p.get_x() + p.get_width() / 2., p.get_height() / 2), ha='center', va='center')
+            ax.set_xlabel('Criteria', fontsize = 12)
+            # Set the x-axis labels to be truncated and tilted
+            ax.set_xticklabels([label[:10] for label in self.crit_df['Criteria']], rotation=45)
+
+        ax.set_ylabel('Weight', fontsize = 12)
+        ax.set_axisbelow(True)
+        ax.grid(True, linestyle = ':')
+        plt.tight_layout()
+        plt.show()
+        
+        return
+    
+
+#%% Ranking methods
+    # Method for ranking the alternatives
+    def calc_rankings(self, mcdm_methods = MCDM_DEFAULT, comp_ranks=COMP_DEFAULT, constraints ={}, rank_filt = {}, derived_columns = None):
+            """
+            Calculate rankings for a DecisionMatrix instance using specified Multi-Criteria Decision Making (MCDM) methods.
+        
+            Parameters:
+            - mcdm_methods : Dict[str, MCDMMethod]
+                Dictionary of MCDM methods to use for ranking the alternatives. 
+                The keys are the names of the methods and the values are instances of the MCDMMethod class.
+            - comp_ranks : Dict[str, CompromiseRanking]
+                Dictionary of compromise ranking methods to use for ranking the alternatives. 
+                The keys are the names of the methods and the values are instances of the CompromiseRanking class.
+            - constraints : Dict[str, str]
+                Dictionary of constraints to apply to the decision matrix. 
+                The keys are the column names and the values are the conditions to apply.
+            - rank_filt : Dict[str, str]
+                Dictionary of filters to apply to the decision matrix before ranking. 
+                The keys are the column names and the values are the conditions to apply.
+            - derived_columns : List[str]
+                List of derived columns to include in the output DataFrame.
+
+            Returns:
+            - ranks_df : pd.DataFrame
+                DataFrame containing the rankings of the alternatives.
+                
+            """
+            
+            # provide criteria weights in array numpy.darray. All weights must sum to 1.
+            weights = np.array([self.weights[crit_col] for crit_col in self.crit_cols])
+            # provide criteria types in array numpy.darray. Profit criteria are represented by 1 and cost criteria by -1.
+            types = np.array([self.objectives[crit_col] for crit_col in self.crit_cols])
+
+            # Create a copy of the decision matrix DataFrame
+            red_dm_df = self.dm_df.copy()
+            # Check if both 'Group ID' and 'Sample ID' columns exist
+            if 'Group ID' not in red_dm_df.columns:
+                red_dm_df['Group ID'] = 'G1'
+            if 'Sample ID' not in red_dm_df.columns:
+                red_dm_df['Sample ID'] = 'S1'
+            # Pre-filter which sceanrio, groups and 
+            red_dm_df, _ = filter_dataframe(red_dm_df, filter_conditions=rank_filt, derived_columns=derived_columns)
+            
+            ## Create data frames to store data
+            # Define base column
+            base_cols = list(self.alternatives_df.columns)
+            if isinstance(self.groups_df, pd.DataFrame):
+                base_cols +=  list(self.groups_df.columns)
+            if isinstance(self.unc_smpls_df, pd.DataFrame):
+                base_cols += list(self.unc_smpls_df.columns)
+            # Alternatives not included
+            alt_exc_nan_df = pd.DataFrame(columns= self.dm_df.columns) # To store nan alternatives
+            alt_exc_const_df = pd.DataFrame(columns= base_cols+ list(constraints.keys())) # To store nan alternatives
+            # rank containers
+            ranks_crit_df = pd.DataFrame(columns=base_cols + self.crit_cols)
+            #ranks_mcdm_methods_df = pd.DataFrame(columns=base_cols + list(mcdm_methods.keys()))
+            #ranks_comp_df = pd.DataFrame(columns=base_cols + list(comp_ranks.keys()))
+            ranks_MCDM_df = pd.DataFrame(columns=base_cols + list(mcdm_methods.keys()) + list(comp_ranks.keys()))
+
+            # Check if crit_cols contains any zero values
+            if red_dm_df[self.crit_cols].isin([0]).any().any():
+                # Iterate through MCDM methods
+                for method_name, method_instance in mcdm_methods.items():
+                    if isinstance(method_instance, (ARAS, CODAS, CRADIS)):
+                        print(f"Warning: {method_name} is of type {type(method_instance)}, which may require special handling due to zero values in some criteria columns. Recmonedeation is to replace the zero values with negligaibel numbers.", 3*"...\n")
+            
+
+            # Iterate through all pairs of 'Group ID' and 'Sample ID'
+            for _, group_scen_df in red_dm_df[['Group ID', 'Sample ID']].drop_duplicates().iterrows():
+            
+                # Check if both columns exist
+                sg_df = red_dm_df[red_dm_df[['Group ID', 'Sample ID']].isin(group_scen_df[['Group ID', 'Sample ID']].values).all(axis=1)]
+
+                # Store all not included alternatives
+                # due to NaN values
+                nan_alt_rows = sg_df[self.crit_cols].isna().any(axis=1)
+                if nan_alt_rows.any():
+                    # Check if empty or all-NA rows
+                    if alt_exc_nan_df.empty:
+                        alt_exc_nan_df = sg_df[nan_alt_rows]
+                    else:
+                        alt_exc_nan_df = pd.concat([alt_exc_nan_df, sg_df[nan_alt_rows]], ignore_index=True)
+                    sg_df.reset_index(drop=True, inplace=True)
+                    nan_alt_rows.reset_index(drop=True, inplace=True)
+                    sg_df = sg_df[~nan_alt_rows]
+                    
+                # 
+                if constraints:
+                    sg_df, boolean_df = filter_dataframe(sg_df, filter_conditions=constraints, derived_columns=derived_columns, base_cols=base_cols)
+                    alt_exc_const_df = pd.concat([alt_exc_const_df, boolean_df[~(boolean_df[constraints.keys()]==True).all(axis=1)]], ignore_index=True)
+
+
+                # Find the smallest number in each column and add its absolute value plus one to the column
+                matrix_df = sg_df[self.crit_cols].copy()
+                matrix_df = matrix_df.apply(lambda col: col + abs(col.min()) + 1)
+
+                # Convert the DataFrame back to a numpy array
+                matrix = matrix_df.to_numpy()
+
+                # Add a random small positive value to each element of the matrix
+                matrix = matrix + np.random.rand(*matrix.shape) * 1e-4
+                
+                if matrix.any():
+                    
+                    # Temp container
+                    temp_ranks_MCDM_df = sg_df[base_cols].copy()
+            
+                    ## Calc ranking for each MCDM method
+                    for pipe in mcdm_methods.keys():
+            
+                        # Calculate the preference values of alternatives
+                        if not isinstance(mcdm_methods[pipe],SPOTIS):
+                            pref = mcdm_methods[pipe](matrix, weights, types)
+                        else:
+                            # SPOTIS preferences must be sorted in ascending order
+                            bounds_min = np.amin(matrix, axis = 0)
+                            bounds_max = np.amax(matrix, axis = 0)
+                            bounds = np.vstack((bounds_min, bounds_max))
+                            # Calculate the preference values of alternatives
+                            pref = mcdm_methods[pipe](matrix, weights, types, bounds)
+                            
+                        # Generate ranking of alternatives by sorting alternatives descendingly according to the TOPSIS algorithm (reverse = True means sorting in descending order) according to preference values
+                        if  isinstance(mcdm_methods[pipe], (MULTIMOORA)):
+                            temp_ranks_MCDM_df.loc[~nan_alt_rows, pipe] = mcdm_methods[pipe](matrix, weights, types) # Mu;timoora includes ranker
+                        elif isinstance(mcdm_methods[pipe], (VIKOR, SPOTIS)):
+                            temp_ranks_MCDM_df.loc[~nan_alt_rows, pipe] = rank_preferences(pref, reverse = False)
+                        else:
+                            temp_ranks_MCDM_df.loc[~nan_alt_rows, pipe] = rank_preferences(pref, reverse = True)
+                    
+                    # Calc compromised ranking
+                    if comp_ranks:
+                        for comp_rank in comp_ranks.keys():
+                            temp_ranks_MCDM_df.loc[~nan_alt_rows, comp_rank] = comp_ranks[comp_rank](temp_ranks_MCDM_df.loc[~nan_alt_rows,mcdm_methods.keys()].to_numpy())
+                    
+        
+                    # Populate the containers
+                    # Exclude empty or all-NA columns before concatenation
+                    # Check if temp_ranks_MCDM_df is empty
+                    temp_ranks_MCDM_df = temp_ranks_MCDM_df.dropna(how='all', axis=1)
+                    if temp_ranks_MCDM_df.empty:
+                        pass
+                    elif ranks_MCDM_df.empty:
+                        ranks_MCDM_df = temp_ranks_MCDM_df
+                    else:
+                        ranks_MCDM_df = pd.concat([ranks_MCDM_df, temp_ranks_MCDM_df], ignore_index=True)
+                    ranks_crit_df = pd.concat([ranks_crit_df, ranks_columns(sg_df, columns=self.crit_cols, objectives=self.objectives)], ignore_index=True) # Calc criteria ranking
+                    ranks_df = pd.merge(ranks_crit_df, ranks_MCDM_df)
+        
+            # Check if ranks_MCDM_df is empty
+            if ranks_MCDM_df.empty:
+                print("No alternatives to rank.")
+                return
+            # Store all not included alternatives with ranking zero
+            # Get all columns from list(mcdm_methods.keys()) that have a value of zero in ranks_MCDM_df
+            #zero = ranks_MCDM_df.columns[ranks_MCDM_df.isin([0]).any()].tolist()
+                
+            
+            # TODO: Quick fix to add Group ID and Sample ID to the ranks_MCDM_df
+            if 'Group ID' not in base_cols:
+                ranks_MCDM_df['Group ID'] = 'G1'
+            if 'Sample ID' not in base_cols:
+                ranks_MCDM_df['Sample ID'] = 'S1'
+
+            return RanksOutput(ranks_df, ranks_crit_df, ranks_MCDM_df, alt_exc_nan_df, alt_exc_const_df, list(mcdm_methods.keys()), list(comp_ranks.keys()), self)
+
+#%% Methods fro manipulating the DecisionMatrix object (e.g., pivoting, reweighting, etc.)
+
+    # Method to pivot and reweight the critera based on the group column and group weights
     def pivot_and_reweight_criteria(self, piv_col):
             """
            Pivot and reweight criteria based on a specified pivot column and group weights.
@@ -309,7 +553,22 @@ class DecisionMatrix:
     
             return new_self
 
+    # Method to calculate the conditional criteria
     def mean_based_criteria(self, condition={}, derived_columns=None):
+        '''
+        Calculate the mean of the criteria based on the condition provided.
+
+        Parameters:
+        - condition: dict
+            Dictionary of conditions to apply to the decision matrix. 
+            The keys are the column names and the values are the conditions to apply.
+        - derived_columns: list
+            List of derived columns to include in the output DataFrame.
+
+        Returns:
+        - new_self: DecisionMatrix
+            A new instance of DecisionMatrix with mean-based criteria.
+        '''
         dm_df = self.dm_df.copy()
 
         # Define base column
@@ -369,344 +628,10 @@ class DecisionMatrix:
         
         return new_self
 
-    # def mean_based_criteria(
-    #     self,
-    #     unc_var_mean_based: List[str]
-    # ) -> 'DecisionMatrix':
-    #     """
-    #     Apply criteria based on mean values of uncertain variables to the given data
-    #     and generate a new instance of DecisionMatrix.
+
     
-    #     Parameters:
-    #     - unc_var_mean_based (list): List of uncertain variables based on their means.
-    
-    #     Returns:
-    #     - new_self (DecisionMatrix): New instance of DecisionMatrix with updated criteria.
-    #     """
-    #     mean_dict = {}
-    #     prob_dict = {}
-    
-    #     # Create containers to store mean values and probability distributions
-    #     matched_rows_df = pd.DataFrame()
-    
-    #     # Iterate through each uncertain variable to determine means or probability distributions
-    #     for unc_var in unc_var_mean_based:
-    #         dist = self.unc_var_prob_dist[unc_var]
-    #         if isinstance(dist, dict):
-    #             prob_dict[unc_var] = dist  # Store probability distributions
-    #         else:
-    #             mean_dict[unc_var] = self.unc_var_prob_dist[unc_var].mean()  # Calculate mean values
-    #             matched_rows_df[unc_var] = abs(self.dm_df[unc_var] - mean_dict[unc_var]) < 1e-6  # Find matched rows
-    
-    #     # Filter the DataFrame based on matched rows or use the entire DataFrame
-    #     if len(matched_rows_df) > 0:
-    #         mean_matched_dm_df = self.dm_df[matched_rows_df.all(axis=1)]  # Filtered DataFrame
-    #         columns_to_drop = ['Alternative ID', 'Group ID', 'Sample ID']
-    #         columns_existing = list(set(columns_to_drop) & set(mean_matched_dm_df.columns))
-    #         metrics_df = mean_matched_dm_df.drop(columns_existing, axis=1)  # Drop specific columns
-    #     else:
-    #         metrics_df = self.dm_df.drop(['Alternative ID', 'Group ID', 'Sample ID'], axis=1)  # Use entire DataFrame
-    
-    #     # Identify and update uncertain columns and their respective probability distributions
-    #     new_unc_cols = [unc_var for unc_var in self.unc_cols if unc_var not in unc_var_mean_based]
-    #     new_unc_var_prob_dist = {unc_var: dist for unc_var, dist in self.unc_var_prob_dist.items() if
-    #                              unc_var not in unc_var_mean_based}
-    
-    #     # Update criteria based on probability distributions
-    #     if prob_dict:
-    #         for var, dist in prob_dict.items():
-    #             piv_col = var
-                
-    #             # Define pivot and index columns for pivot
-    #             index_col = [col for col in self.alt_cols + self.unc_cols + self.group_cols + self.crit_cols if
-    #                          col not in self.crit_cols + [piv_col] and col in metrics_df.columns]
-    
-    #             # Filter out rows where the specified column is ALL or nan
-    #             columns = [col for col in self.alt_cols + self.unc_cols + self.group_cols + self.crit_cols if
-    #                        col in metrics_df.columns]
-    #             filt_dm_df = metrics_df[columns]
-    #             filt_dm_df = filt_dm_df[~filt_dm_df[piv_col].isin(['ALL']) & filt_dm_df[piv_col].notna()]
-    
-    #             crit_piv_df = filt_dm_df.pivot(index=index_col,
-    #                                            columns=piv_col,
-    #                                            values=self.crit_cols)
-                
-    #             # Reduce the pivoted criteria columns to the expected criteria value
-    #             crit_piv_df = crit_piv_df.reset_index()
-    #             crit_piv_df.columns = [f'{"_".join(col)}' if col[1] else f'{col[0]}' for col in crit_piv_df.columns]
-    
-    #             for crit_col in self.crit_cols:
-    #                 # Create column
-    #                 crit_piv_df[crit_col] = 0
-    #                 # Calculate each probability weigthed contribution
-    #                 for event, prob in dist.items():
-    #                     crit_piv_df[crit_col] += crit_piv_df[crit_col + '_' + event] * prob
-    #                     crit_piv_df = crit_piv_df.drop(crit_col + '_' + event, axis=1)
-                
-    #             # Update the metrics df
-    #             metrics_df = crit_piv_df
-    
-    #     # Initialize a new DecisionMatrix instance with updated attributes
-    #     new_self = DecisionMatrix(
-    #         metrics_df=metrics_df,
-    #         objectives=self.objectives,
-    #         alt_cols=self.alt_cols,
-    #         crit_cols=self.crit_cols,
-    #         weights=self.weights,
-    #         group_cols=self.group_cols,
-    #         unc_cols=new_unc_cols,
-    #         unc_var_prob_dist=new_unc_var_prob_dist,
-    #         crit_cats=self.crit_cats,
-    #         group_weights=self.group_weights,
-    #         # Include other necessary attributes for initialization of the new instance
-    #     )
-    
-    #     return new_self
 
-
-
-    def plot_criteria(self, group_by_category=True):
-        """
-        Plots the weights of criteria.
-
-        Parameters:
-        - group_by_category (bool): If True, the criteria will be grouped by category and displayed as a stacked bar plot. 
-                       If False, the criteria will be displayed as individual bars.
-
-        Returns:
-        None
-        """
-
-        # Get a list of unique criteria
-        criteria = self.crit_df['Criteria'].unique()
-
-        # Generate a list of unique colors
-        colors = list(mcolors.CSS4_COLORS.keys())
-        colors.remove('black')  # Remove 'black' from the list of colors
-        colors = colors[0:len(criteria)]
-
-        # Make colors for each criteria and store in dictionary
-        criteria_colors = dict(zip(criteria, colors))
-
-        if group_by_category:
-            # Create a bar plot from the pivoted DataFrame
-            df = self.cat_crit_df.pivot(index='Category', columns='Criteria', values='Weight')
-            ax = df.plot(kind='bar', stacked=True, figsize=(15,8), color=[criteria_colors[crit] for crit in df.columns])
-            # Create an array to store the cumulative height of the bars
-            cumulative_height = np.zeros(len(df))
-            # Iterate over each bar (patch) in the plot
-            for i, p in enumerate(ax.patches):
-                # Calculate the index of the current bar in its stack
-                bar_index = i % len(df)
-                # Update the cumulative height of the bars in the current stack
-                cumulative_height[bar_index] += p.get_height()
-                # Only annotate bars with a height greater than zero
-                if p.get_height() > 0:
-                    # Annotate the height (weights value) of each bar on the plot
-                    # The coordinates given are (x, y) where x is the bar's x coordinate and y is the cumulative height of the bars in the stack minus half the bar's height
-                    ax.annotate(str(round(p.get_height(), 2)), (p.get_x() + p.get_width() / 2., cumulative_height[bar_index] - p.get_height() / 2), ha='center', va='center')
-
-            # Set the x-axis label
-            ax.set_xlabel('Criteria categories', fontsize = 12)
-            # Set the x-axis labels to be truncated and tilted
-            ax.set_xticklabels([label[:10] for label in df.index], rotation=45)
-            # Set the legend
-            plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc='lower left', ncol=4, mode="expand", borderaxespad=0., edgecolor = 'black', title = 'Criteria', fontsize = 12)
-
-        else:
-            ax = self.crit_df.plot(x='Criteria', y='Weight', kind='bar', figsize=(15,8), color=[criteria_colors[crit] for crit in self.crit_df['Criteria']], title='Weight of criteria', legend = False)
-            for p in ax.patches:
-                # Only annotate bars with a height greater than zero
-                if p.get_height() > 0:
-                    # Annotate the height (weights value) of each bar on the plot
-                    # The coordinates given are (x, y) where x is the bar's x coordinate and y is half the bar's height
-                    ax.annotate(str(round(p.get_height(), 2)), (p.get_x() + p.get_width() / 2., p.get_height() / 2), ha='center', va='center')
-            ax.set_xlabel('Criteria', fontsize = 12)
-            # Set the x-axis labels to be truncated and tilted
-            ax.set_xticklabels([label[:10] for label in self.crit_df['Criteria']], rotation=45)
-
-        ax.set_ylabel('Weight', fontsize = 12)
-        ax.set_axisbelow(True)
-        ax.grid(True, linestyle = ':')
-        plt.tight_layout()
-        plt.show()
-        
-        return
-
-    def calc_rankings(self, mcdm_methods = MCDM_DEFAULT, comp_ranks=COMP_DEFAULT, constraints ={}, rank_filt = {}, derived_columns = None):
-            """
-            Calculate rankings for a DecisionMatrix instance using specified Multi-Criteria Decision Making (MCDM) methods.
-        
-            Parameters:
-                self (DecisionMatrix): 
-                    The DecisionMatrix instance containing the data to be ranked.
-                crit_cols_rank (list of str): 
-                    A list of column names to be ranked.
-                mcdm_methods (dict of {str: callable}): 
-                    A dictionary with MCDM method names as keys and ranking functions as values.
-                comp_ranks (dict): 
-                    A dictionary specifying compromise ranking methods.
-                rank_filt (dict):
-                    A dictionary specifying filter conditions. E.g., {'Group ID': 'G1', 'Sample ID': 'S1'}
-        
-            Returns:
-                ....
-            """
-            
-            # provide criteria weights in array numpy.darray. All weights must sum to 1.
-            weights = np.array([self.weights[crit_col] for crit_col in self.crit_cols])
-            # provide criteria types in array numpy.darray. Profit criteria are represented by 1 and cost criteria by -1.
-            types = np.array([self.objectives[crit_col] for crit_col in self.crit_cols])
-
-            # Create a copy of the decision matrix DataFrame
-            red_dm_df = self.dm_df.copy()
-            # Check if both 'Group ID' and 'Sample ID' columns exist
-            if 'Group ID' not in red_dm_df.columns:
-                red_dm_df['Group ID'] = 'G1'
-            if 'Sample ID' not in red_dm_df.columns:
-                red_dm_df['Sample ID'] = 'S1'
-            # Pre-filter which sceanrio, groups and 
-            red_dm_df, _ = filter_dataframe(red_dm_df, filter_conditions=rank_filt, derived_columns=derived_columns)
-            
-            ## Create data frames to store data
-            # Define base column
-            base_cols = list(self.alternatives_df.columns)
-            if isinstance(self.groups_df, pd.DataFrame):
-                base_cols +=  list(self.groups_df.columns)
-            if isinstance(self.unc_smpls_df, pd.DataFrame):
-                base_cols += list(self.unc_smpls_df.columns)
-            # Alternatives not included
-            alt_exc_nan_df = pd.DataFrame(columns= self.dm_df.columns) # To store nan alternatives
-            alt_exc_const_df = pd.DataFrame(columns= base_cols+ list(constraints.keys())) # To store nan alternatives
-            # rank containers
-            ranks_crit_df = pd.DataFrame(columns=base_cols + self.crit_cols)
-            #ranks_mcdm_methods_df = pd.DataFrame(columns=base_cols + list(mcdm_methods.keys()))
-            #ranks_comp_df = pd.DataFrame(columns=base_cols + list(comp_ranks.keys()))
-            ranks_MCDM_df = pd.DataFrame(columns=base_cols + list(mcdm_methods.keys()) + list(comp_ranks.keys()))
-
-            # Check if crit_cols contains any zero values
-            if red_dm_df[self.crit_cols].isin([0]).any().any():
-                # Iterate through MCDM methods
-                for method_name, method_instance in mcdm_methods.items():
-                    if isinstance(method_instance, (ARAS, CODAS, CRADIS)):
-                        print(f"Warning: {method_name} is of type {type(method_instance)}, which may require special handling due to zero values in some criteria columns. Recmonedeation is to replace the zero values with negligaibel numbers.", 3*"...\n")
-            
-
-            # Iterate through all pairs of 'Group ID' and 'Sample ID'
-            for _, group_scen_df in red_dm_df[['Group ID', 'Sample ID']].drop_duplicates().iterrows():
-            
-                # Check if both columns exist
-                sg_df = red_dm_df[red_dm_df[['Group ID', 'Sample ID']].isin(group_scen_df[['Group ID', 'Sample ID']].values).all(axis=1)]
-
-                # Store all not included alternatives
-                # due to NaN values
-                nan_alt_rows = sg_df[self.crit_cols].isna().any(axis=1)
-                if nan_alt_rows.any():
-                    # Check if empty or all-NA rows
-                    if alt_exc_nan_df.empty:
-                        alt_exc_nan_df = sg_df[nan_alt_rows]
-                    else:
-                        alt_exc_nan_df = pd.concat([alt_exc_nan_df, sg_df[nan_alt_rows]], ignore_index=True)
-                    sg_df.reset_index(drop=True, inplace=True)
-                    nan_alt_rows.reset_index(drop=True, inplace=True)
-                    sg_df = sg_df[~nan_alt_rows]
-
-                # Store all not included alternatives
-                # due to NaN values
-                #nan_alt_rows = sg_df[self.crit_cols].isna().any(axis=1)
-                #if nan_alt_rows.any():
-                #    alt_exc_nan_df = pd.concat([alt_exc_nan_df, sg_df[nan_alt_rows]], ignore_index=True)
-                #    sg_df.reset_index(drop=True, inplace=True)
-                #    nan_alt_rows.reset_index(drop=True, inplace=True)
-                #    sg_df = sg_df[~nan_alt_rows]
-                    
-                if constraints:
-                    sg_df, boolean_df = filter_dataframe(sg_df, filter_conditions=constraints, derived_columns=derived_columns, base_cols=base_cols)
-                    alt_exc_const_df = pd.concat([alt_exc_const_df, boolean_df[~(boolean_df[constraints.keys()]==True).all(axis=1)]], ignore_index=True)
-
-
-                # Find the smallest negative number in each column and add its absolute value to the column
-                #matrix_df = sg_df[self.crit_cols].copy()
-                #matrix_df = matrix_df.apply(lambda col: col + abs(col.min()) if col.min() < 0 else col)
-
-                # Convert the DataFrame back to a numpy array
-                #matrix = matrix_df.to_numpy()
-                # add a random small positive values to each element of the matrix
-                #matrix = matrix + np.random.rand(*matrix.shape) * 1e-9
-
-                # Find the smallest number in each column and add its absolute value plus one to the column
-                matrix_df = sg_df[self.crit_cols].copy()
-                matrix_df = matrix_df.apply(lambda col: col + abs(col.min()) + 1)
-
-                # Convert the DataFrame back to a numpy array
-                matrix = matrix_df.to_numpy()
-
-                # Add a random small positive value to each element of the matrix
-                matrix = matrix + np.random.rand(*matrix.shape) * 1e-4
-                
-                if matrix.any():
-                    
-                    # Temp container
-                    temp_ranks_MCDM_df = sg_df[base_cols].copy()
-            
-                    ## Calc ranking for each MCDM method
-                    for pipe in mcdm_methods.keys():
-            
-                        # Calculate the preference values of alternatives
-                        if not isinstance(mcdm_methods[pipe],SPOTIS):
-                            pref = mcdm_methods[pipe](matrix, weights, types)
-                        else:
-                            # SPOTIS preferences must be sorted in ascending order
-                            bounds_min = np.amin(matrix, axis = 0)
-                            bounds_max = np.amax(matrix, axis = 0)
-                            bounds = np.vstack((bounds_min, bounds_max))
-                            # Calculate the preference values of alternatives
-                            pref = mcdm_methods[pipe](matrix, weights, types, bounds)
-                            
-                        # Generate ranking of alternatives by sorting alternatives descendingly according to the TOPSIS algorithm (reverse = True means sorting in descending order) according to preference values
-                        if  isinstance(mcdm_methods[pipe], (MULTIMOORA)):
-                            temp_ranks_MCDM_df.loc[~nan_alt_rows, pipe] = mcdm_methods[pipe](matrix, weights, types) # Mu;timoora includes ranker
-                        elif isinstance(mcdm_methods[pipe], (VIKOR, SPOTIS)):
-                            temp_ranks_MCDM_df.loc[~nan_alt_rows, pipe] = rank_preferences(pref, reverse = False)
-                        else:
-                            temp_ranks_MCDM_df.loc[~nan_alt_rows, pipe] = rank_preferences(pref, reverse = True)
-                    
-                    # Calc compromised ranking
-                    if comp_ranks:
-                        for comp_rank in comp_ranks.keys():
-                            temp_ranks_MCDM_df.loc[~nan_alt_rows, comp_rank] = comp_ranks[comp_rank](temp_ranks_MCDM_df.loc[~nan_alt_rows,mcdm_methods.keys()].to_numpy())
-                    
-        
-                    # Populate the containers
-                    # Exclude empty or all-NA columns before concatenation
-                    # Check if temp_ranks_MCDM_df is empty
-                    temp_ranks_MCDM_df = temp_ranks_MCDM_df.dropna(how='all', axis=1)
-                    if temp_ranks_MCDM_df.empty:
-                        pass
-                    elif ranks_MCDM_df.empty:
-                        ranks_MCDM_df = temp_ranks_MCDM_df
-                    else:
-                        ranks_MCDM_df = pd.concat([ranks_MCDM_df, temp_ranks_MCDM_df], ignore_index=True)
-                    ranks_crit_df = pd.concat([ranks_crit_df, ranks_columns(sg_df, columns=self.crit_cols, objectives=self.objectives)], ignore_index=True) # Calc criteria ranking
-                    ranks_df = pd.merge(ranks_crit_df, ranks_MCDM_df)
-        
-            # Check if ranks_MCDM_df is empty
-            if ranks_MCDM_df.empty:
-                print("No alternatives to rank.")
-                return
-            # Store all not included alternatives with ranking zero
-            # Get all columns from list(mcdm_methods.keys()) that have a value of zero in ranks_MCDM_df
-            #zero = ranks_MCDM_df.columns[ranks_MCDM_df.isin([0]).any()].tolist()
-                
-            
-            # TODO: Quick fix to add Group ID and Sample ID to the ranks_MCDM_df
-            if 'Group ID' not in base_cols:
-                ranks_MCDM_df['Group ID'] = 'G1'
-            if 'Sample ID' not in base_cols:
-                ranks_MCDM_df['Sample ID'] = 'S1'
-
-            return RanksOutput(ranks_df, ranks_crit_df, ranks_MCDM_df, alt_exc_nan_df, alt_exc_const_df, list(mcdm_methods.keys()), list(comp_ranks.keys()), self)
-
+#%% Sensitivity (weight) analysis 
     def calc_imprt_sensitivity(self, mcdm_methods, comp_ranks = {}, crit_cols_dict = {}, cat_crit_dict = {}, imp_tot = np.linspace(0, 1, 11), crit_tag = 'Criteria', alt_tag = 'Alternative ID', **ranking_args):
         
         # Get the criteria dataframe from the decision matrix object
@@ -791,7 +716,129 @@ class DecisionMatrix:
         # Return the results dataframe and the weights sensitivity dataframe
         return ranks_imp_df, imp_sens_df
 
+    #%% Print the DecisionMatrix object
 
+    def print_dm(self):
+        """Print the decision matrix and its attributes."""
+        sections = {
+            'Decision Matrix': self.dm_df,
+            'Criteria DataFrame': self.crit_df,
+            'Categorized Criteria DataFrame': self.cat_crit_df,
+            'Alternatives DataFrame': self.alternatives_df,
+            'Groups DataFrame': self.groups_df,
+            'Uncertainty Samples': self.unc_smpls_df
+        }
+        
+        # Helper function to format and print
+        def safe_print(title, df):
+            print(f'{title}:')
+            if df is not None and not df.empty:
+                print(tb.tabulate(df, headers='keys', tablefmt='pretty'))
+            else:
+                print("DataFrame is empty or not defined.")
+            print('')
+
+        # Print each section
+        for title, df in sections.items():
+            safe_print(title, df)
+        
+        # Print group weights separately
+        print('Group Weights:')
+        if self.group_weights:
+            print(tb.tabulate(self.group_weights.items(), headers=['Group', 'Weights'], tablefmt='pretty'))
+        else:
+            print("Group weights are empty or not defined.")
+        print('')
+
+#%% Plotting methods
+    def plot_norm_criteria_values(self, objective_max=True, norm_func=norms.linear_normalization, alt_name_col=None, scale_to=None):
+            """
+            Normalize the decision matrix and plot the normalized criteria values.
+
+            Parameters:
+                objective_max (bool): If True, converts all criteria to maximization.
+                norm_func (function): Normalization function to apply, default is linear_normalization.
+                alt_name_col (str): Column name for alternatives, used as x-axis in the plot.
+                scale_to (int or None): If specified, rescales normalized values to a 1–scale_to range (e.g., 5 for a 1–5 scale).
+            """
+            # Copy the decision matrix
+            modified_dm_df = self.dm_df.copy()
+
+            # Convert "min" criteria to "max" if objective_max is True
+            if objective_max:
+                for i, crit in enumerate(self.crit_cols):
+                    if self.objectives[crit] == 'min':
+                        modified_dm_df[crit] = -modified_dm_df[crit]
+
+            # Set the alternative name column to the first column if not specified
+            if not alt_name_col:
+                alt_name_col = self.alt_cols[0]
+
+            # Apply normalization to the decision matrix
+            raw_dm = modified_dm_df[self.crit_cols].values
+            norm_values = norm_func(raw_dm, np.ones(len(self.crit_cols)))  # Treat all criteria as maximization
+            norm_df = pd.DataFrame(norm_values, columns=self.crit_cols, index=self.metrics_df.index)
+
+            # Rescale to the specified range if `scale_to` is given
+            if scale_to:
+                norm_df = self.rescale_to_range(norm_df, scale_to)
+
+            # Merge the normalized values back with the alternative IDs
+            plot_df = self.dm_df[[alt_name_col]].join(norm_df)
+
+            # Reshape data for plotting
+            plot_data = plot_df.melt(id_vars=[alt_name_col], value_vars=self.crit_cols, 
+                                    var_name='Criterion', value_name='Normalized Value')
+
+            # Plot the normalized criteria values
+            plt.figure(figsize=(14, 8))
+            sns.set_palette("colorblind")
+
+            # Determine the appropriate plot type based on the data
+            data_counts = plot_data.groupby([alt_name_col, 'Criterion']).size()
+            plot_type = "boxplot" if data_counts.max() > 1 else "scatter"
+
+            if plot_type == "scatter":
+                sns.scatterplot(data=plot_data, x=alt_name_col, y='Normalized Value', hue='Criterion', 
+                                style='Criterion', s=100)
+            elif plot_type == "boxplot":
+                sns.boxplot(data=plot_data, x=alt_name_col, y='Normalized Value', hue='Criterion', fliersize=0)
+            else:
+                raise ValueError("Invalid plot_type. Expected 'line', 'boxplot', or 'auto'.")
+
+            # Customize plot labels
+            plt.xlabel("Alternatives")
+            plt.ylabel(f"Normalized Criteria Values (1–{scale_to} Scale)" if scale_to else "Normalized Criteria Values")
+            plt.title("Normalized Criteria Values for Each Alternative (All Objectives Maximized)")
+            plt.legend(title="Criteria", bbox_to_anchor=(0.5, 1.15), loc='upper center', ncol=len(self.crit_cols))
+            plt.xticks(rotation=45)
+
+            # Set y-ticks and grid for scaled data
+            if scale_to:
+                plt.yticks(range(1, scale_to + 1))  # 1–scale_to scale ticks
+                plt.grid(True, axis='y', linestyle='--', linewidth=0.7)
+
+            plt.tight_layout()
+            plt.show()
+
+    def rescale_to_range(self, df, scale_to):
+        """
+        Rescale specified columns in a DataFrame to a 1–scale_to range.
+
+        Parameters:
+            df (DataFrame): DataFrame with normalized values to rescale.
+            scale_to (int): Upper bound for the rescaling range.
+
+        Returns:
+            DataFrame: DataFrame with rescaled criteria columns.
+        """
+        for col in df.columns:
+            min_val = df[col].min()
+            max_val = df[col].max()
+            df[col] = 1 + (scale_to - 1) * (df[col] - min_val) / (max_val - min_val)
+        return df
+    
+# Rank the specified columns in a DataFrame according to the provided ranking objectives
 def ranks_columns(df, columns, objectives):
     """
     Rank specified columns in a DataFrame according to provided ranking objectives.
@@ -823,7 +870,7 @@ def ranks_columns(df, columns, objectives):
         
     return ranked_df
 
-
+# Plot 
 def plot_crit_weights_sensitivity(imp_sens_df, xlabel):
     # Plot the DataFrame as a stacked bar plot
     ax = imp_sens_df.plot(kind='bar', stacked=True, figsize=(12, 6))
@@ -897,5 +944,4 @@ def plot_rank_sens_weights(ranks_imp_df, alt_tag, rank_method_name, xlabel, orde
     # Show the plot
     plt.tight_layout()
     plt.show()
-
 

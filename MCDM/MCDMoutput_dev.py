@@ -35,7 +35,11 @@ class RanksOutput:
 
 
     # make a method to plot the ranks
-    def plot_ranks(self, rank_type = 'MCDM', alt_name_col = 'Alternative ID', disp_rnk_cols = [], sort_by_col = None, transpose = False, group_id = 'G1', state_id = 'S1'):
+    def plot_ranks(self, rank_type = 'MCDM', disp_rnk_cols = [], sort_by_col = None, transpose = False, group_id = 'G1', state_id = 'S1'):
+
+
+        # Set the alternative name column to the first column if the alt_cols is more than one
+        alt_name_col = self.dm.alt_cols[0] if self.dm.alt_cols[0] != 'Alternative' else "Alternative ID"
 
         # Get the disp_rnk_cols
         if disp_rnk_cols:
