@@ -11,6 +11,9 @@ import matplotlib.cm as cm
 import seaborn as sns
 import tabulate as tb
 
+from scipy.spatial import ConvexHull
+
+
 
 # Importing various methods from pyrepo_mcda
 from pyrepo_mcda.mcda_methods import AHP, ARAS, COCOSO, CODAS, COPRAS, CRADIS, EDAS, MABAC, MARCOS, MULTIMOORA, MULTIMOORA_RS, PROMETHEE_II, PROSA_C, SAW, SPOTIS, TOPSIS, VIKOR, VMCM, WASPAS, VIKOR_SMAA
@@ -380,140 +383,7 @@ class DecisionMatrix:
         plt.show()
 
 
-    
-
-#%% Ranking methods
-    # Method for ranking the alternatives
-    # def calc_rankings(
-    #         self,
-    #         mcdm_methods=MCDM_DEFAULT,
-    #         comp_ranks=COMP_DEFAULT,
-    #         constraints={},
-    #         derived_columns=None,
-    #         use_dominance_as_constraint=False
-    #     ):
-    #     """
-    #     Calculate rankings for a DecisionMatrix instance using specified Multi-Criteria Decision Making (MCDM) methods.
-
-    #     Parameters:
-    #     - mcdm_methods : Dict[str, MCDMMethod]
-    #         Dictionary of MCDM methods to use for ranking the alternatives. 
-    #     - comp_ranks : Dict[str, CompromiseRanking]
-    #         Dictionary of compromise ranking methods to use for ranking the alternatives. 
-    #     - constraints : Dict[str, str]
-    #         Dictionary of constraints to apply to the decision matrix. 
-    #     - derived_columns : List[str]
-    #         List of derived columns to include in the output DataFrame.
-    #     - use_dominance_as_constraint : bool
-    #         If True, use dominance analysis to exclude dominated alternatives from the ranking process.
-
-    #     Returns:
-    #     - RanksOutput
-    #         Object containing DataFrames with rankings, criteria rankings, and excluded alternatives.
-    #     """
-    #     # Prepare criteria weights and objectives
-    #     weights = np.array([self.weights[crit_col] for crit_col in self.crit_cols])
-    #     types = np.array([self.objectives[crit_col] for crit_col in self.crit_cols])
-    #     red_dm_df = self.dm_df.copy()
-
-    #     # Add 'Group ID' and 'Sample ID' if missing
-    #     if 'Group ID' not in red_dm_df.columns:
-    #         red_dm_df['Group ID'] = 'G1'
-    #     if 'Sample ID' not in red_dm_df.columns:
-    #         red_dm_df['Sample ID'] = 'S1'
-
-    #     # Containers for results
-    #     base_cols = list(self.alternatives_df.columns)
-    #     if isinstance(self.groups_df, pd.DataFrame):
-    #         base_cols += list(self.groups_df.columns)
-    #     if isinstance(self.unc_smpls_df, pd.DataFrame):
-    #         base_cols += list(self.unc_smpls_df.columns)
-
-    #     alt_exc_nan_df = pd.DataFrame(columns=self.dm_df.columns)
-    #     alt_exc_const_df = pd.DataFrame(columns=base_cols + list(constraints.keys()) + ['Dominance Constraint'])
-    #     ranks_crit_df = pd.DataFrame(columns=base_cols + self.crit_cols)
-    #     ranks_MCDM_df = pd.DataFrame(columns=base_cols + list(mcdm_methods.keys()) + list(comp_ranks.keys()))
-
-    #     # Analyze dominance if required
-    #     if use_dominance_as_constraint:
-    #         dominance_pareto_df = self.analyze_dominance_and_pareto(constraints=constraints, derived_columns=derived_columns)
-
-    #     # Iterate through each 'Group ID' and 'Sample ID' combination
-    #     for _, group_scen_df in red_dm_df[['Group ID', 'Sample ID']].drop_duplicates().iterrows():
-    #         sg_df = red_dm_df[
-    #             (red_dm_df['Group ID'] == group_scen_df['Group ID']) &
-    #             (red_dm_df['Sample ID'] == group_scen_df['Sample ID'])
-    #         ]
-
-    #         # Apply dominance constraint
-    #         if use_dominance_as_constraint:
-    #             group_sample_dominance_df = dominance_pareto_df[
-    #                 (dominance_pareto_df['Group ID'] == group_scen_df['Group ID']) &
-    #                 (dominance_pareto_df['Sample ID'] == group_scen_df['Sample ID'])
-    #             ]
-    #             dominated_alternatives = group_sample_dominance_df[group_sample_dominance_df['Pareto Optimal'] == False][self.alt_cols[0]].tolist()
-    #             sg_df['Dominance Constraint'] = ~sg_df[self.alt_cols[0]].isin(dominated_alternatives)
-    #         else:
-    #             sg_df['Dominance Constraint'] = True
-
-    #         # Handle NaN values
-    #         nan_alt_rows = sg_df[self.crit_cols].isna().any(axis=1)
-    #         if nan_alt_rows.any():
-    #             alt_exc_nan_df = pd.concat([alt_exc_nan_df, sg_df[nan_alt_rows]], ignore_index=True)
-    #             sg_df = sg_df[~nan_alt_rows]
-
-    #         # Apply other constraints
-    #         if constraints:
-    #             sg_df, boolean_df = filter_dataframe(sg_df, filter_conditions=constraints, derived_columns=derived_columns, base_cols=base_cols)
-    #             boolean_df['Dominance Constraint'] = sg_df['Dominance Constraint']
-    #             alt_exc_const_df = pd.concat([alt_exc_const_df, boolean_df[~(boolean_df[list(constraints.keys()) + ['Dominance Constraint']] == True).all(axis=1)]], ignore_index=True)
-
-    #         # Prepare matrix for MCDM methods
-    #         matrix_df = sg_df[self.crit_cols].copy()
-    #         matrix_df = matrix_df.apply(lambda col: col + abs(col.min()) + 1)
-    #         matrix = matrix_df.to_numpy() + np.random.rand(*matrix_df.shape) * 1e-4
-
-    #         # Calculate rankings if valid
-    #         if matrix.any():
-    #             temp_ranks_MCDM_df = sg_df[base_cols].copy()
-    #             for method_name, method_instance in mcdm_methods.items():
-    #                 if isinstance(method_instance, VIKOR) and matrix.shape[0] < 3:
-    #                     print(f"Warning: VIKOR requires at least 3 alternatives. Skipping for {group_scen_df}.")
-    #                     continue
-    #                 elif not isinstance(method_instance, SPOTIS):
-    #                     pref = method_instance(matrix, weights, types)
-    #                 else:
-    #                     bounds = np.vstack((np.amin(matrix, axis=0), np.amax(matrix, axis=0)))
-    #                     pref = method_instance(matrix, weights, types, bounds)
-
-    #                 reverse = not isinstance(method_instance, (VIKOR, SPOTIS))
-    #                 temp_ranks_MCDM_df[method_name] = rank_preferences(pref, reverse=reverse)
-
-    #             for comp_rank_name, comp_rank_instance in comp_ranks.items():
-    #                 temp_ranks_MCDM_df[comp_rank_name] = comp_rank_instance(temp_ranks_MCDM_df[mcdm_methods.keys()].to_numpy())
-
-    #             if ranks_MCDM_df.empty:
-    #                 ranks_MCDM_df = temp_ranks_MCDM_df
-    #             else:
-    #                 ranks_MCDM_df = pd.concat([ranks_MCDM_df, temp_ranks_MCDM_df], ignore_index=True)
-
-    #             ranks_crit_df = pd.concat([ranks_crit_df, ranks_columns(sg_df, columns=self.crit_cols, objectives=self.objectives)], ignore_index=True)
-
-    #     if ranks_MCDM_df.empty:
-    #         print("No alternatives to rank.")
-    #         return None
-
-    #     # Ensure Group ID and Sample ID are present
-    #     if 'Group ID' not in base_cols:
-    #         ranks_MCDM_df['Group ID'] = 'G1'
-    #     if 'Sample ID' not in base_cols:
-    #         ranks_MCDM_df['Sample ID'] = 'S1'
-
-    #     return RanksOutput(ranks_crit_df, ranks_crit_df, ranks_MCDM_df, alt_exc_nan_df, alt_exc_const_df, list(mcdm_methods.keys()), list(comp_ranks.keys()), self)
-
-            
-
-    def calc_rankings(self, mcdm_methods = MCDM_DEFAULT, comp_ranks=COMP_DEFAULT, constraints ={}, rank_filt = {}, derived_columns = None):
+    def calc_rankings(self, mcdm_methods = MCDM_DEFAULT, comp_ranks=COMP_DEFAULT, constraints ={}, derived_columns = None, only_incl_pareto_opt=False):
             """
             Calculate rankings for a DecisionMatrix instance using specified Multi-Criteria Decision Making (MCDM) methods.
         
@@ -532,6 +402,8 @@ class DecisionMatrix:
                 The keys are the column names and the values are the conditions to apply.
             - derived_columns : List[str]
                 List of derived columns to include in the output DataFrame.
+            - only_incl_pareto_opt : bool
+                If True, only include Pareto optimal alternatives in the ranking.
 
             Returns:
             - ranks_df : pd.DataFrame
@@ -543,7 +415,7 @@ class DecisionMatrix:
             weights = np.array([self.weights[crit_col] for crit_col in self.crit_cols])
             # provide criteria types in array numpy.darray. Profit criteria are represented by 1 and cost criteria by -1.
             types = np.array([self.objectives[crit_col] for crit_col in self.crit_cols])
-
+     
             # Create a copy of the decision matrix DataFrame
             red_dm_df = self.dm_df.copy()
             # Check if both 'Group ID' and 'Sample ID' columns exist
@@ -552,7 +424,7 @@ class DecisionMatrix:
             if 'Sample ID' not in red_dm_df.columns:
                 red_dm_df['Sample ID'] = 'S1'
             # Pre-filter which sceanrio, groups and 
-            red_dm_df, _ = filter_dataframe(red_dm_df, filter_conditions=rank_filt, derived_columns=derived_columns)
+            #red_dm_df, _ = filter_dataframe(red_dm_df, filter_conditions=rank_filt, derived_columns=derived_columns)
             
             ## Create data frames to store data
             # Define base column
@@ -597,22 +469,47 @@ class DecisionMatrix:
                     nan_alt_rows.reset_index(drop=True, inplace=True)
                     sg_df = sg_df[~nan_alt_rows]
                     
-                # 
+                # Apply constraints if provided
                 if constraints:
-                    sg_df, boolean_df = filter_dataframe(sg_df, filter_conditions=constraints, derived_columns=derived_columns, base_cols=base_cols)
-                    alt_exc_const_df = pd.concat([alt_exc_const_df, boolean_df[~(boolean_df[constraints.keys()]==True).all(axis=1)]], ignore_index=True)
+                    # Add Pareto Optimal constraint if enabled
+                    if only_incl_pareto_opt:
+                        # Analyze dominance and Pareto optimality
+                        dominance_pareto_df, _ = self.analyze_dominance_and_pareto(constraints=constraints)
 
+                        # Merge Pareto-optimality information into sg_df
+                        sg_df = sg_df.merge(
+                            dominance_pareto_df[[self.alt_cols[0], 'Pareto Optimal']],
+                            on=self.alt_cols[0],
+                            how='left'
+                        )
+                        sg_df['Pareto Optimal'] = sg_df['Pareto Optimal'].fillna(False)  # Default False if missing
+
+                        # Add Pareto Optimal as a constraint
+                        constraints["Pareto Optimal"] = {"equal": [True]}
+
+                    # Use filter_dataframe to apply all constraints, including Pareto Optimal if enabled
+                    sg_df, boolean_df = filter_dataframe(sg_df, filter_conditions=constraints, derived_columns=derived_columns, base_cols=base_cols)
+
+                    # Append non-satisfying alternatives to alt_exc_const_df
+                    alt_exc_const_df = pd.concat(
+                        [alt_exc_const_df, boolean_df[~(boolean_df[constraints.keys()] == True).all(axis=1)]],
+                        ignore_index=True,
+                    )
+
+                    # Drop the constraint columns from the DataFrame
+                    # This is an error since the dominance method also uses the constraints but not the Pareto Optimal constraint . FIX THIS LATER!
+                    if only_incl_pareto_opt:
+                        # drop the Pareto Optimal column from the DataFrame
+                        sg_df.drop(columns=['Pareto Optimal'], inplace=True)
+                        # Drop the constraint from the constraints dictionary
+                        del constraints["Pareto Optimal"]
 
                 # Find the smallest number in each column and add its absolute value plus one to the column
                 matrix_df = sg_df[self.crit_cols].copy()
-                matrix_df = matrix_df.apply(lambda col: col + abs(col.min()) + 1)
 
                 # Convert the DataFrame back to a numpy array
-                matrix = matrix_df.to_numpy()
+                matrix, mod_types = self._preprocess_decision_matrix(matrix_df, types)
 
-                # Add a random small positive value to each element of the matrix
-                matrix = matrix + np.random.rand(*matrix.shape) * 1e-4
-                
                 # Flag to track whether VIKOR warning has been printed
                 vikor_warning_flag = False
 
@@ -626,27 +523,45 @@ class DecisionMatrix:
                     for pipe in mcdm_methods.keys():
             
                         # Calculate the preference values of alternatives
-                        if isinstance(mcdm_methods[pipe],VIKOR) and matrix.shape[0] < 3: # VIKOR requires at least 3 alternatives
-                            # set pref as nan array
-                            if not vikor_warning_flag:
-                                print(  f"Warning: VIKOR requires at least 3 alternatives. "
-                                        f"In this dataset, some groups or samples have fewer alternatives, and VIKOR rankings for those cases will be skipped."
-                                    )
-                                vikor_warning_flag = True  # Set the flag to True after printing the warning
-                            pref = np.full(matrix.shape[0], np.nan)
+                        if isinstance(mcdm_methods[pipe], VIKOR):
+                            try:
+                                # Check if there are enough alternatives or numerical issues
+                                with np.errstate(divide='ignore', invalid='ignore'):
+                                    if matrix.shape[0] < 3:  # VIKOR requires at least 3 alternatives
+                                        pref = np.full(matrix.shape[0], np.nan)  # Skip ranking
+                                    else:
+                                        pref = mcdm_methods[pipe](matrix, weights, mod_types)
+
+                                # Check for invalid results (e.g., NaN in preferences)
+                                if matrix.shape[0] < 3 or np.isnan(pref).any():
+                                    if not vikor_warning_flag:
+                                        print(
+                                            "Warning: Invalid values encountered in VIKOR calculations. \n"
+                                            "Possible causes:\n"
+                                            "- Fewer than three alternatives (VIKOR requires at least 3).\n"
+                                            "- Division by zero or normalization issues (e.g., all alternatives have identical values for a criterion).\n"
+                                            "- Alternatives are too similar, leading to unstable computations.\n"
+                                            "- Extreme or very small values in the decision matrix causing numerical errors.\n"
+                                            "- Missing or incomplete data affecting calculations."
+                                        )
+                                        vikor_warning_flag = True  # Avoid repeated warnings
+                                    pref = np.full(matrix.shape[0], np.nan)
+                            except Exception as e:
+                                print(f"Error in VIKOR method: {e}. Assigning NaN to preferences.")
+                                pref = np.full(matrix.shape[0], np.nan)
                         elif not isinstance(mcdm_methods[pipe],SPOTIS):
-                            pref = mcdm_methods[pipe](matrix, weights, types)
+                            pref = mcdm_methods[pipe](matrix, weights, mod_types)
                         else:
                             # SPOTIS preferences must be sorted in ascending order
                             bounds_min = np.amin(matrix, axis = 0)
                             bounds_max = np.amax(matrix, axis = 0)
                             bounds = np.vstack((bounds_min, bounds_max))
                             # Calculate the preference values of alternatives
-                            pref = mcdm_methods[pipe](matrix, weights, types, bounds)
+                            pref = mcdm_methods[pipe](matrix, weights, mod_types, bounds)
                             
                         # Generate ranking of alternatives by sorting alternatives descendingly according to the TOPSIS algorithm (reverse = True means sorting in descending order) according to preference values
                         if  isinstance(mcdm_methods[pipe], (MULTIMOORA)):
-                            temp_ranks_MCDM_df.loc[~nan_alt_rows, pipe] = mcdm_methods[pipe](matrix, weights, types) # Mu;timoora includes ranker
+                            temp_ranks_MCDM_df.loc[~nan_alt_rows, pipe] = mcdm_methods[pipe](matrix, weights, mod_types) # Mu;timoora includes ranker
                         elif isinstance(mcdm_methods[pipe], (VIKOR, SPOTIS)):
                             temp_ranks_MCDM_df.loc[~nan_alt_rows, pipe] = rank_preferences(pref, reverse = False)
                         else:
@@ -997,7 +912,7 @@ class DecisionMatrix:
         all_weights = []
 
         for category, criteria in targets.items():
-            print(f"Analyzing sensitivity for: {category} with criteria: {criteria}")
+            print(f"Analyzing sensitivity for: {category}: {criteria}")
 
             # Call `_calc_imprt_sensitivity` for each target
             ranks_df, weights_df = self._calc_imprt_sensitivity(
@@ -1301,102 +1216,181 @@ class DecisionMatrix:
             print("Group weights are empty or not defined.")
 
 #%% Plotting methods
-    def plot_norm_criteria_values(self, norm_func=norms.linear_normalization, scale_to=None):
+
+    def process_and_plot_norm_criteria(self, norm_func=norms.linear_normalization, scale_to=None, plot=True):
         """
-        Normalize the decision matrix and plot the normalized criteria values with colors based on the 'colors' attribute.
+        Normalize the decision matrix per subgroup, optionally plot the normalized criteria values, and return the normalized DataFrame.
 
         Parameters:
             norm_func (function): Normalization function to apply, default is linear_normalization.
             scale_to (int or None): If specified, rescales normalized values to a 1–scale_to range (e.g., 5 for a 1–5 scale).
+            plot (bool): Whether to plot the normalized criteria values. Default is True.
+
+        Returns:
+            pd.DataFrame: The normalized DataFrame, maintaining the original column order.
         """
         # Copy the decision matrix
         modified_dm_df = self.dm_df.copy()
 
-        # Set the alternative name column to the first column if the alt_cols is more than one
-        alt_name_col = self.alt_cols[0] if self.alt_cols[0] != 'Alternative' else "Alternative ID"
+        # Add default 'Group ID' and 'Sample ID' if missing
+        if 'Group ID' not in modified_dm_df.columns:
+            modified_dm_df['Group ID'] = 'G1'
+        if 'Sample ID' not in modified_dm_df.columns:
+            modified_dm_df['Sample ID'] = 'S1'
 
-        # Apply normalization to the decision matrix
-        raw_dm = modified_dm_df[self.crit_cols].values
-        objectives_array = np.array([self.objectives[col] for col in self.crit_cols])
-        norm_values = norm_func(raw_dm, objectives_array)
-        norm_df = pd.DataFrame(norm_values, columns=self.crit_cols)
+        # Initialize container for normalized data
+        norm_dfs = []
 
-        # Rescale to the specified range if `scale_to` is given
-        if scale_to:
-            norm_df = self.rescale_to_range(norm_df, scale_to)
+        # Normalize per subgroup (Group ID and Sample ID)
+        for _, subgroup in modified_dm_df[['Group ID', 'Sample ID']].drop_duplicates().iterrows():
+            # Filter subgroup
+            subgroup_df = modified_dm_df[
+                (modified_dm_df['Group ID'] == subgroup['Group ID']) &
+                (modified_dm_df['Sample ID'] == subgroup['Sample ID'])
+            ]
 
-        # Add the alternative column to the normalized DataFrame
-        norm_df[alt_name_col] = modified_dm_df[alt_name_col]
-        plot_df = norm_df
+            if subgroup_df[self.crit_cols].isna().all().all():
+                continue  # Skip groups with no valid data
 
-        # Reshape data for plotting
-        plot_data = plot_df.melt(
-            id_vars=[alt_name_col],
-            value_vars=self.crit_cols,
-            var_name='Criterion',
-            value_name='Normalized Value'
-        )
+            # Extract raw decision matrix and objectives for criteria columns
+            raw_dm = subgroup_df[self.crit_cols].values
+            objectives_array = np.array([self.objectives[col] for col in self.crit_cols])
 
-        # Map colors to criteria using self.colors['criteria']
-        criteria_colors = [self.colors['criteria'][crit] for crit in plot_data['Criterion'].unique()]
-        sns.set_palette(sns.color_palette(criteria_colors))
+            # Preprocess the decision matrix
+            preprocessed_dm, updated_objectives = self._preprocess_decision_matrix(raw_dm, objectives_array)
 
-        # Plot the normalized criteria values
-        plt.figure(figsize=(14, 8))
+            # Apply normalization using the preprocessed decision matrix
+            norm_values = norm_func(preprocessed_dm, updated_objectives)
+            norm_df = pd.DataFrame(norm_values, columns=self.crit_cols, index=subgroup_df.index)
 
-        # Determine the appropriate plot type based on the data
-        data_counts = plot_data.groupby([alt_name_col, 'Criterion']).size()
-        plot_type = "boxplot" if data_counts.max() > 1 else "scatter"
+            # Rescale to the specified range if `scale_to` is given
+            if scale_to:
+                norm_df = self._rescale_to_range(norm_df, scale_to)
 
-        if plot_type == "scatter":
-            sns.scatterplot(
-                data=plot_data,
-                x=alt_name_col,
-                y='Normalized Value',
-                hue='Criterion',
-                style='Criterion',
-                s=100
+            # Preserve non-criteria columns and merge normalized data
+            subgroup_norm_df = subgroup_df.copy()
+            subgroup_norm_df.update(norm_df)  # Update only the criteria columns
+            norm_dfs.append(subgroup_norm_df)
+
+        # Combine all normalized subgroups into a single DataFrame
+        normalized_df = pd.concat(norm_dfs, ignore_index=True)
+
+        # Optionally plot the data
+        if plot:
+            # Reshape data for plotting
+            plot_data = normalized_df.melt(
+                id_vars=self.alt_cols + ['Group ID', 'Sample ID'],
+                value_vars=self.crit_cols,
+                var_name='Criterion',
+                value_name='Normalized Value'
             )
-        elif plot_type == "boxplot":
-            sns.boxplot(
-                data=plot_data,
-                x=alt_name_col,
-                y='Normalized Value',
-                hue='Criterion',
-                fliersize=0
+
+            # Map colors to criteria using self.colors['criteria']
+            criteria_colors = [self.colors['criteria'][crit] for crit in plot_data['Criterion'].unique()]
+            sns.set_palette(sns.color_palette(criteria_colors))
+
+            # Plot the normalized criteria values
+            plt.figure(figsize=(14, 8))
+
+            # Determine the appropriate plot type based on the data
+            data_counts = plot_data.groupby(self.alt_cols + ['Criterion']).size()
+            plot_type = "boxplot" if data_counts.max() > 1 else "scatter"
+
+            if plot_type == "scatter":
+                sns.scatterplot(
+                    data=plot_data,
+                    x=self.alt_cols[0],
+                    y='Normalized Value',
+                    hue='Criterion',
+                    style='Criterion',
+                    s=100
+                )
+            elif plot_type == "boxplot":
+                sns.boxplot(
+                    data=plot_data,
+                    x=self.alt_cols[0],
+                    y='Normalized Value',
+                    hue='Criterion',
+                    fliersize=0
+                )
+            else:
+                raise ValueError("Invalid plot_type. Expected 'scatter' or 'boxplot'.")
+
+            # Customize plot labels
+            plt.xlabel("Alternatives")
+            y_label = "Normalized Criteria Values (Higher Scores are Better, 0–1 Scale)"
+            if scale_to:
+                y_label = f"Normalized Criteria Values (Higher Scores are Better, 1–{scale_to} Scale)"
+            plt.ylabel(y_label)
+
+            # Adjust the legend
+            plt.legend(
+                bbox_to_anchor=(0., 1.02, 1., .102), 
+                loc='lower left', 
+                ncol=4, 
+                mode="expand", 
+                borderaxespad=0., 
+                edgecolor='black', 
+                title='Criteria', 
+                fontsize=12
             )
-        else:
-            raise ValueError("Invalid plot_type. Expected 'scatter' or 'boxplot'.")
+            plt.xticks(rotation=45)
 
-        # Customize plot labels
-        plt.xlabel("Alternatives")
-        y_label = "Normalized Criteria Values (Higher Scores are Better, 0–1 Scale)"
-        if scale_to:
-            y_label = f"Normalized Criteria Values (Higher Scores are Better, 1–{scale_to} Scale)"
-        plt.ylabel(y_label)
+            # Set y-ticks and grid for scaled data
+            plt.grid(True, axis='y', linestyle='--', linewidth=0.7)
 
-        # Adjust the legend
-        plt.legend(
-            bbox_to_anchor=(0., 1.02, 1., .102), 
-            loc='lower left', 
-            ncol=4, 
-            mode="expand", 
-            borderaxespad=0., 
-            edgecolor='black', 
-            title='Criteria', 
-            fontsize=12
-        )
-        plt.xticks(rotation=45)
+            plt.tight_layout()
+            plt.show()
 
-        # Set y-ticks and grid for scaled data
-        plt.grid(True, axis='y', linestyle='--', linewidth=0.7)
-
-        plt.tight_layout()
-        plt.show()
+        return normalized_df
 
 
 
-    def rescale_to_range(self, df, scale_to):
+
+    def _preprocess_decision_matrix(self, raw_dm, objectives_array):
+        """
+        Preprocess the decision matrix to handle negative, small values, and positive ranges,
+        and convert all objectives to maximization.
+
+        Parameters:
+            raw_dm (pd.DataFrame or numpy.ndarray): The raw decision matrix.
+            objectives_array (numpy.ndarray): Array indicating objectives for each criterion (1 for max, -1 for min).
+
+        Returns:
+            numpy.ndarray: The preprocessed decision matrix.
+            numpy.ndarray: Updated objectives array (all maximization).
+        """
+        # If input is a DataFrame, convert to a NumPy array
+        is_dataframe = isinstance(raw_dm, pd.DataFrame)
+        preprocessed_dm = raw_dm.to_numpy(copy=True) if is_dataframe else np.copy(raw_dm)
+
+        for i, obj in enumerate(objectives_array):
+            if obj == -1:  # Minimization objective
+                # Flip the values to maximization by multiplying with -1
+                preprocessed_dm[:, i] = -preprocessed_dm[:, i]
+
+            # Shift all values to ensure positivity
+            min_value = preprocessed_dm[:, i].min()
+            if min_value < 0:
+                preprocessed_dm[:, i] += abs(min_value) + 1  # Add absolute min value and an offset (+1)
+            elif min_value == 0:
+                preprocessed_dm[:, i] += 1  # Add a small positive offset if the minimum is zero
+
+        # Ensure preprocessed_dm is of type float
+        preprocessed_dm = preprocessed_dm.astype(float)
+
+        # Add a very small random value to avoid potential issues with zero values
+        preprocessed_dm += np.random.rand(*preprocessed_dm.shape) * 1e-4
+
+        # Update objectives to all maximization
+        updated_objectives = np.ones_like(objectives_array)
+
+        return preprocessed_dm, updated_objectives
+
+
+
+
+    def _rescale_to_range(self, df, scale_to):
         """
         Rescale specified columns in a DataFrame to a 1–scale_to range.
 
@@ -1413,6 +1407,9 @@ class DecisionMatrix:
             df[col] = 1 + (scale_to - 1) * (df[col] - min_val) / (max_val - min_val)
         return df
     
+
+#%% Sensitivity (weight) analysis
+
     def analyze_dominance_and_pareto(self, constraints=None, derived_columns=None):
         """
         Analyze dominance and Pareto optimality of alternatives in the decision matrix.
@@ -1422,7 +1419,9 @@ class DecisionMatrix:
             derived_columns (list, optional): Additional columns to include in the filtered DataFrame.
 
         Returns:
-            pd.DataFrame: A DataFrame containing the dominance and Pareto optimality results.
+            tuple: 
+                - pd.DataFrame: A DataFrame containing the dominance and Pareto optimality results.
+                - pd.DataFrame: A DataFrame indicating for each criterion which alternatives perform better.
         """
         # Create a copy of the decision matrix
         dm_df = self.dm_df.copy()
@@ -1440,6 +1439,10 @@ class DecisionMatrix:
         # Prepare the result DataFrame structure
         result_columns = self.alt_cols + ['Group ID', 'Sample ID', 'Dominated By', 'Dominance Rank', 'Pareto Optimal'] + self.crit_cols
         result_df = pd.DataFrame(columns=result_columns)
+
+        # Prepare the second DataFrame structure
+        criteria_comparison_columns = self.alt_cols + ['Group ID', 'Sample ID'] + self.crit_cols
+        criteria_comparison_df = pd.DataFrame(columns=criteria_comparison_columns)
 
         # Iterate through unique combinations of Group ID and Sample ID
         for _, group_sample in dm_df[['Group ID', 'Sample ID']].drop_duplicates().iterrows():
@@ -1459,6 +1462,9 @@ class DecisionMatrix:
             dominated_by = {i: [] for i in range(len(subset))}
             is_pareto_optimal = {i: True for i in range(len(subset))}
 
+            # Initialize structure for criteria-based performance comparison
+            criteria_performance = {alt: {crit: [] for crit in self.crit_cols} for alt in subset[self.alt_cols[0]]}
+
             # Perform dominance analysis
             for i, candidate in enumerate(criteria_matrix):
                 for j, competitor in enumerate(criteria_matrix):
@@ -1466,6 +1472,13 @@ class DecisionMatrix:
                         if np.all(competitor >= candidate) and np.any(competitor > candidate):
                             dominated_by[i].append(subset.iloc[j][self.alt_cols[0]])
                             is_pareto_optimal[i] = False
+
+                        # Compare for each criterion
+                        for k, crit in enumerate(self.crit_cols):
+                            if competitor[k] > candidate[k]:  # Competitor is better on this criterion
+                                alt_i = subset.iloc[i][self.alt_cols[0]]
+                                alt_j = subset.iloc[j][self.alt_cols[0]]
+                                criteria_performance[alt_i][crit].append(alt_j)
 
             # Calculate dominance rank (number of dominations)
             dominance_rank = {i: len(dominated_by[i]) for i in range(len(subset))}
@@ -1476,31 +1489,55 @@ class DecisionMatrix:
             temp_result['Dominance Rank'] = [dominance_rank[i] for i in range(len(subset))]
             temp_result['Pareto Optimal'] = [is_pareto_optimal[i] for i in range(len(subset))]
 
-            # Concatenate temp_result into result_df, handling empty DataFrame cases
+            # Prepare criteria comparison results
+            temp_criteria_comparison = subset[self.alt_cols + ['Group ID', 'Sample ID']].copy()
+            for crit in self.crit_cols:
+                temp_criteria_comparison[crit] = [
+                    criteria_performance[alt][crit] for alt in subset[self.alt_cols[0]]
+                ]
+
+            # Concatenate results into result DataFrames
             if result_df.empty:
                 result_df = temp_result
             elif not temp_result.empty:
                 result_df = pd.concat([result_df, temp_result], ignore_index=True)
 
+            if criteria_comparison_df.empty:
+                criteria_comparison_df = temp_criteria_comparison
+            elif not temp_criteria_comparison.empty:
+                criteria_comparison_df = pd.concat([criteria_comparison_df, temp_criteria_comparison], ignore_index=True)
+
         # Remove Group ID and Sample ID if not present in the original dataset
         if 'Group ID' not in self.dm_df.columns:
             result_df.drop(columns=['Group ID'], inplace=True)
+            criteria_comparison_df.drop(columns=['Group ID'], inplace=True)
         if 'Sample ID' not in self.dm_df.columns:
             result_df.drop(columns=['Sample ID'], inplace=True)
+            criteria_comparison_df.drop(columns=['Sample ID'], inplace=True)
 
-        return result_df
+        return result_df, criteria_comparison_df
 
 
-    
 
-    def plot_pareto_frontier(self, criteria_x, criteria_y, constraints=None, derived_columns=None, show_table=False, group_id=None, sample_id=None):
+    def plot_pareto_frontier(
+            self, 
+            criteria_x, 
+            criteria_y, 
+            criteria_z=None, 
+            constraints=None, 
+            derived_columns=None, 
+            show_table=False, 
+            group_id=None, 
+            sample_id=None
+        ):
         """
-        Plot the Pareto frontier for two selected criteria and optionally display it as a table,
-        with filtering based on group and sample IDs (if they exist).
+        Plot the Pareto frontier for two selected criteria by connecting Pareto-optimal points sequentially.
+        Optionally, display it as a table with filtering based on group and sample IDs (if they exist).
 
         Parameters:
             criteria_x (str): The criterion to plot on the x-axis.
             criteria_y (str): The criterion to plot on the y-axis.
+            criteria_z (str, optional): The criterion to determine the size of the dots. Default is None.
             constraints (dict, optional): Constraints to filter the data before analysis.
             derived_columns (list, optional): Additional columns to include in the filtered DataFrame.
             show_table (bool): If True, display a table of Pareto optimal alternatives.
@@ -1511,7 +1548,7 @@ class DecisionMatrix:
             None: Displays a plot and optionally prints a table.
         """
         # Analyze dominance and Pareto optimality
-        dominance_pareto_df = self.analyze_dominance_and_pareto(constraints=constraints, derived_columns=derived_columns)
+        dominance_pareto_df, _ = self.analyze_dominance_and_pareto(constraints=constraints, derived_columns=derived_columns)
 
         # Dynamically check for 'Group ID' and 'Sample ID'
         if 'Group ID' in dominance_pareto_df.columns and group_id:
@@ -1528,14 +1565,43 @@ class DecisionMatrix:
 
         # Check if criteria exist in the dataset
         missing_criteria = [c for c in [criteria_x, criteria_y] if c not in pareto_optimal_df.columns]
+        if criteria_z and criteria_z not in pareto_optimal_df.columns:
+            missing_criteria.append(criteria_z)
+
         if missing_criteria:
             raise ValueError(f"The following criteria are missing: {missing_criteria}. Ensure they are valid columns.")
 
-        # Extract criteria values for Pareto optimal alternatives
-        pareto_criteria_df = pareto_optimal_df[[criteria_x, criteria_y] + self.alt_cols]
+        # Sort Pareto-optimal points by the x-axis criterion
+        pareto_optimal_df = pareto_optimal_df.sort_values(by=criteria_x)
+
+        # Create a mapping from the descriptive identifier to alternative index
+        alt_id_mapping = {
+            row[self.alt_cols[0]]: row['Alternative ID']
+            for _, row in self.alternatives_df.iterrows()
+        }
+
+        # Get the alternative legend mapping
+        if len(self.alt_cols) == 1 and self.alt_cols[0] != "Alternative":
+            legend_labels = {
+                alt_id: self.alternatives_df.loc[self.alternatives_df['Alternative ID'] == alt_id, self.alt_cols[0]].values[0]
+                for alt_id in self.alternatives_df['Alternative ID']
+            }
+        else:
+            legend_labels = {
+                alt_id: alt_id for alt_id in self.alternatives_df['Alternative ID']
+            }
+
+        # Normalize dot sizes for both Pareto and non-Pareto sets
+        if criteria_z:
+            dot_size_all = dominance_pareto_df[criteria_z] / dominance_pareto_df[criteria_z].max() * 400
+        else:
+            dot_size_all = np.ones(len(dominance_pareto_df)) * 200  # Default dot size
 
         # Plot the Pareto frontier
         plt.figure(figsize=(10, 6))
+
+        # Track labels to avoid duplicates
+        added_labels = set()
 
         # Scatter plot for all alternatives in the filtered dataset
         group_sample_df = self.dm_df.copy()
@@ -1544,21 +1610,47 @@ class DecisionMatrix:
         if 'Sample ID' in group_sample_df.columns and sample_id:
             group_sample_df = group_sample_df[group_sample_df['Sample ID'] == sample_id]
 
-        plt.scatter(group_sample_df[criteria_x], group_sample_df[criteria_y], color='gray', label='All Alternatives', alpha=0.6)
-
         # Highlight Pareto optimal alternatives
-        plt.scatter(
-            pareto_criteria_df[criteria_x],
-            pareto_criteria_df[criteria_y],
-            color='red',
-            label='Pareto Optimal',
-            s=100,
-            edgecolor='black'
-        )
+        for _, row in pareto_optimal_df.iterrows():
+            alt_id = alt_id_mapping.get(row[self.alt_cols[0]], None)
+            if alt_id:
+                label = legend_labels[alt_id] if legend_labels[alt_id] not in added_labels else None
+                if label:
+                    added_labels.add(label)
+                plt.scatter(
+                    row[criteria_x],
+                    row[criteria_y],
+                    s=dot_size_all[row.name],
+                    color=self.colors['alternatives'].get(alt_id, 'red'),
+                    label=label,
+                    edgecolor='black'
+                )
 
-        # Add text labels to the Pareto optimal points
-        for _, row in pareto_criteria_df.iterrows():
-            plt.text(row[criteria_x], row[criteria_y], row[self.alt_cols[0]], fontsize=10, ha='right', va='bottom')
+        # Plot all alternatives
+        for _, row in group_sample_df.iterrows():
+            alt_id = alt_id_mapping.get(row[self.alt_cols[0]], None)
+            if alt_id:
+                label = legend_labels[alt_id] if legend_labels[alt_id] not in added_labels else None
+                if label:
+                    added_labels.add(label)
+                plt.scatter(
+                    row[criteria_x],
+                    row[criteria_y],
+                    s=dot_size_all[row.name],
+                    color=self.colors['alternatives'].get(alt_id, 'gray'),
+                    label=label,
+                    alpha=0.6
+                )
+
+        # Draw a line connecting Pareto-optimal points sequentially
+        plt.plot(
+            pareto_optimal_df[criteria_x], 
+            pareto_optimal_df[criteria_y], 
+            linestyle='--', 
+            color='black', 
+            alpha=0.7, 
+            label='Pareto Frontier'
+        )
 
         # Set plot labels and title
         plt.xlabel(criteria_x)
@@ -1570,7 +1662,23 @@ class DecisionMatrix:
             group_sample_title = f" (Group: {group_id or 'All'}, Sample: {sample_id or 'All'})"
         plt.title(f"Pareto Frontier for {criteria_y} vs {criteria_x}{group_sample_title}")
 
-        plt.legend()
+        # Add legend
+        plt.legend(
+            bbox_to_anchor=(1.05, 1),
+            loc='upper left',
+            title= self.alt_cols[0] if len(self.alt_cols) == 1 else "Alternative ID",
+            fontsize=10,
+            borderaxespad=0,
+        )
+
+        # Annotate size information if criteria_z is provided
+        if criteria_z:
+            plt.annotate(
+                f"Dot size represents: {criteria_z}",
+                xy=(1, 0), xycoords='axes fraction',
+                fontsize=10, ha='right', va='bottom'
+            )
+
         plt.grid(True)
         plt.tight_layout()
         plt.show()
@@ -1578,8 +1686,8 @@ class DecisionMatrix:
         # Optionally display a table of Pareto optimal alternatives
         if show_table:
             print("Pareto Optimal Alternatives:")
-            print(tb.tabulate(pareto_criteria_df, headers='keys', tablefmt='pretty'))
-
+            columns_to_show = [criteria_x, criteria_y] + ([criteria_z] if criteria_z else []) + self.alt_cols
+            print(tb.tabulate(pareto_optimal_df[columns_to_show], headers='keys', tablefmt='pretty'))
 
 
 # Rank the specified columns in a DataFrame according to the provided ranking objectives
@@ -1614,82 +1722,6 @@ def ranks_columns(df, columns, objectives):
         
     return ranked_df
 
-# # Plot 
-# def plot_crit_weights_sensitivity(imp_sens_df, xlabel):
-#     # Plot the DataFrame as a stacked bar plot
-#     ax = imp_sens_df.plot(kind='bar', stacked=True, figsize=(12, 6))
-
-#     # Set the x-axis label
-#     ax.set_xlabel(f'Weight of {xlabel}', fontsize=14)
-
-#     # Set the y-axis label
-#     ax.set_ylabel('Criteria Weight', fontsize=14)
-
-#     # Set x-axis ticks to be in percentage format with no decimals
-#     ax.set_xticklabels([f'{int(tick*100)}%' for tick in imp_sens_df.index], rotation=0, fontsize=12)
-
-#     # Format the y-axis labels to be in percentage format with no decimals
-#     ax.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1.0, decimals=0))
-
-#     # Place the legend on the right side of the plot and set its title to "Criteria"
-#     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), title='Criteria', fontsize=12)
-
-#     # Show the plot
-#     plt.tight_layout()
-#     plt.show()
-
-
-# def plot_rank_sens_weights(ranks_imp_df, alt_tag, rank_method_name, xlabel, order_by='highest'):
-#     # Pivot the DataFrame to make each alternative a column
-#     plot_df = ranks_imp_df.pivot(index='Weight', columns=alt_tag, values=rank_method_name)
-
-#     # Define a color map
-#     color_map = cm.get_cmap('tab10', len(plot_df.columns))
-
-#     # Create a dictionary that maps each column name to a specific color
-#     color_dict = {col: color_map(i) for i, col in enumerate(plot_df.columns)}
-
-#     # Reorder the columns according to the rank at the highest or lowest weights
-#     if order_by == 'highest':
-#         plot_df = plot_df[plot_df.iloc[-1].sort_values(ascending=False).index]
-#         legend_loc = (1.05, 0.5)
-#     elif order_by == 'lowest':
-#         plot_df = plot_df[plot_df.iloc[0].sort_values(ascending=False).index]
-#         legend_loc = (-0.3, 0.5)
-
-#     # Plot the DataFrame with the color map
-#     ax = plot_df.plot(kind='line', grid=True, figsize=(12, 6), color=[color_dict[col] for col in plot_df.columns])
-
-#     # Set the x-axis label
-#     ax.set_xlabel(f'Total weights of {xlabel}', fontsize=14)
-
-#     # Set the y-axis label
-#     ax.set_ylabel('Rank', fontsize=14)
-
-#     # Format the x-axis labels to be in percentage format with no decimals
-#     ax.xaxis.set_major_formatter(mtick.PercentFormatter(1.0, decimals=0))
-
-#     # Set the y-axis limits
-#     ax.set_ylim(0, plot_df.max().max() + 1)
-
-#     # set the x-axis limits
-#     ax.set_xlim(plot_df.index[0], plot_df.index[-1])
-
-#     # Set the y-ticks to be from 1 to the maximum rank number
-#     ax.yaxis.set_ticks(range(1, int(plot_df.max().max() + 2)))
-
-#     # Enable the grid for each y-tick value
-#     ax.yaxis.grid(True)
-
-#     # Create a custom legend for the rank at the highest or lowest weights
-#     lines = [mlines.Line2D([], [], color=color_dict[col], label=f'{col} ({int(plot_df.iloc[-1 if order_by == "highest" else 0, i])})') for i, col in enumerate(plot_df.columns)]
-#     legend = plt.legend(handles=lines, bbox_to_anchor=legend_loc, loc='center left', borderaxespad=0., edgecolor='black', fontsize=14, title=f'Rank at {int(plot_df.index[-1 if order_by == "highest" else 0]*100)}%')
-
-#     # Show the plot
-#     plt.tight_layout()
-#     plt.show()
-
 
 # %%
 
-    

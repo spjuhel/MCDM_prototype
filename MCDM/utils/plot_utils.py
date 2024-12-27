@@ -78,3 +78,84 @@ def plot_individual_criteria_weights(crit_df):
     ax.grid(True, linestyle=':')
     plt.tight_layout()
     plt.show()
+
+# Make a utiltiy function to compare attributes between the original and refactored classes
+def compare_attributes(obj1, obj2):
+    """
+    Compares attributes between two objects and prints differences.
+
+    Parameters:
+    - obj1: The first object to compare.
+    - obj2: The second object to compare.
+
+    Returns:
+    None. Prints results directly.
+    """
+    obj1_attrs = vars(obj1)
+    obj2_attrs = vars(obj2)
+    
+    differences = []
+    for key in obj1_attrs:
+        if key in obj2_attrs:
+            value1 = obj1_attrs[key]
+            value2 = obj2_attrs[key]
+            
+            # Handle DataFrame comparison
+            if isinstance(value1, pd.DataFrame) and isinstance(value2, pd.DataFrame):
+                if not value1.equals(value2):
+                    differences.append(f"DataFrame mismatch in attribute '{key}'")
+            
+            # Handle Series comparison
+            elif isinstance(value1, pd.Series) and isinstance(value2, pd.Series):
+                if not value1.equals(value2):
+                    differences.append(f"Series mismatch in attribute '{key}'")
+            
+            # Handle list comparison
+            elif isinstance(value1, list) and isinstance(value2, list):
+                if value1 != value2:
+                    differences.append(f"List mismatch in attribute '{key}'")
+            
+            # Handle dictionary comparison
+            elif isinstance(value1, dict) and isinstance(value2, dict):
+                for subkey in set(value1.keys()).union(value2.keys()):
+                    if subkey not in value1:
+                        differences.append(f"Key '{subkey}' missing in dictionary attribute '{key}' for obj1")
+                    elif subkey not in value2:
+                        differences.append(f"Key '{subkey}' missing in dictionary attribute '{key}' for obj2")
+                    else:
+                        val1 = value1[subkey]
+                        val2 = value2[subkey]
+                        if isinstance(val1, pd.DataFrame) and isinstance(val2, pd.DataFrame):
+                            if not val1.equals(val2):
+                                differences.append(f"DataFrame mismatch in dictionary attribute '{key}' for subkey '{subkey}'")
+                        elif isinstance(val1, pd.Series) and isinstance(val2, pd.Series):
+                            if not val1.equals(val2):
+                                differences.append(f"Series mismatch in dictionary attribute '{key}' for subkey '{subkey}'")
+                        elif val1 != val2:
+                            differences.append(f"Value mismatch in dictionary attribute '{key}' for subkey '{subkey}': {val1} != {val2}")
+            
+            # Handle None values
+            elif value1 is None and value2 is None:
+                continue  # Both are None, so they match
+            
+            # Mismatched types or fallback for other types
+            elif type(value1) != type(value2):
+                differences.append(f"Type mismatch for attribute '{key}': {type(value1)} != {type(value2)}")
+            else:
+                if value1 != value2:
+                    differences.append(f"Value mismatch in attribute '{key}': {value1} != {value2}")
+        
+        else:
+            differences.append(f"Attribute '{key}' missing in obj2")
+    
+    for key in obj2_attrs:
+        if key not in obj1_attrs:
+            differences.append(f"Attribute '{key}' missing in obj1")
+    
+    # Print results
+    if not differences:
+        print("All attributes match between the original and refactored versions.")
+    else:
+        print("Differences found in attributes:")
+        for diff in differences:
+            print(diff)
